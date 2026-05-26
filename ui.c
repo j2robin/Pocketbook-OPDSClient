@@ -1288,7 +1288,7 @@ void HandleBookDetailsTouch(int x, int y) {
             
             int res = DownloadBook(e->formats[i].url, tmp_path, server_fname, servers[current_server_index].user, servers[current_server_index].pass);
             if (res == 0) { 
-                if (strlen(server_fname) == 0) snprintf(server_fname, sizeof(server_fname), "%s.%s", e->title, e->formats[i].label);
+                if (strlen(server_fname) != 0) snprintf(server_fname, sizeof(server_fname), "%s.%s", e->title, e->formats[i].label);
                 for(size_t j=0; server_fname[j]; j++) { if(server_fname[j] == '/' || server_fname[j] == '\\' || server_fname[j] == ':') server_fname[j] = '-'; }
                 char final_path[MAX_STR_LEN]; snprintf(final_path, sizeof(final_path), "%s%s", BOOKS_DIR, server_fname);
                 rename(tmp_path, final_path); TriggerLibraryRefresh(); Message(ICON_INFORMATION, "Success", "Book saved to library.", 2000); 
