@@ -269,6 +269,7 @@ int ParseOPDSFeed(const char *xml_data, const char *base_url) {
                                 else if (strstr(check, "epub")) strcpy(e->formats[e->format_count].label, "EPUB");
                                 else if (strstr(check, "pdf")) strcpy(e->formats[e->format_count].label, "PDF");
                                 else if (strstr(check, "mobi")) strcpy(e->formats[e->format_count].label, "MOBI");
+                                else if (strstr(check, "fb2+zip")) strcpy(e->formats[e->format_count].label, "FB2 ZIP");
                                 else if (strstr(check, "fb2")) strcpy(e->formats[e->format_count].label, "FB2");
                                 else if (strstr(check, "djvu")) strcpy(e->formats[e->format_count].label, "DJVU");
                                 else if (strstr(check, "txt")) strcpy(e->formats[e->format_count].label, "TXT");

@@ -1,0 +1,52 @@
+name: Build PocketBook App
+
+on:
+  push:
+    branches: [ main, master ]
+    tags:
+      - 'v*' 
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Compile application inside SDK container
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/work \
+            -w /work \
+            --entrypoint /bin/bash \
+            5keeve/pocketbook-sdk:6.3.0-b288-v1 \
+            -c "make"
+
+      - name: Prepare binary extension
+        run: |
+          if [ -f "OPDSClient" ]; then
+            mv OPDSClient OPDSClient.app
+          fi
+          zip -r OPDSClient.zip OPDSClient.app
+
+      - name: Upload compiled binary to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: OPDSClient
+          path: OPDSClient.app
+          retention-days: 90
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: OPDSClient.zip
+          generate_release_notes: true 
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
