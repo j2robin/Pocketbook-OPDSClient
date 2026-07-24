@@ -72,9 +72,10 @@ static int DebugCallback(CURL *handle, curl_infotype type, char *data, size_t si
 
 // Progress callback to update the UI
 static int ProgressCallback(void *clientp, double dltotal, double dlnow, double ultotal, double ulnow) {
-    if (dltotal > 0) {
-        ShowDownloadProgress((long long)dltotal, (long long)dlnow);
-    }
+    // dltotal is 0 when the server omits Content-Length (chunked responses,
+    // on-the-fly conversion, etc.) — still report progress via bytes downloaded
+    // so the UI doesn't sit blank for the whole transfer.
+    ShowDownloadProgress((long long)dltotal, (long long)dlnow);
     return CheckDownloadCancel();
 }
 

@@ -258,10 +258,12 @@ ibitmap* LoadCoverSTB(const char *path) {
 }
 
 void ShowDownloadProgress(long long total, long long current) {
-    static int last_percent = -1;
-    int percent = (total > 0) ? (int)((current * 100) / total) : 0;
-    if (percent == last_percent) return;
-    last_percent = percent;
+    // When total is unknown (server omitted Content-Length), bucket by KB
+    // downloaded instead of percent so the indicator still moves.
+    static long long last_bucket = -1;
+    long long bucket = (total > 0) ? (current * 100) / total : (current / 8192);
+    if (bucket == last_bucket) return;
+    last_bucket = bucket;
 
     int bw = sys_width * 0.8;
     int bh = 60;
@@ -272,12 +274,16 @@ void ShowDownloadProgress(long long total, long long current) {
     DrawRect(bx - 20, by - 80, bw + 40, 200, 0x000000);
 
     SetTextFont(36, 0x000000);
-    char buf[64]; snprintf(buf, sizeof(buf), "Downloading: %d%%", percent);
+    char buf[64];
+    if (total > 0) snprintf(buf, sizeof(buf), "Downloading: %d%%", (int)bucket);
+    else snprintf(buf, sizeof(buf), "Downloading: %lld KB", current / 1024);
     DrawTextRect(bx, by - 50, bw, 40, buf, ALIGN_CENTER);
-    
+
     DrawRect(bx, by + 10, bw, bh, 0x000000);
-    int fill_w = (int)((bw - 4) * percent / 100);
-    if (fill_w > 0) FillArea(bx + 2, by + 12, fill_w, bh - 4, 0x555555);
+    if (total > 0) {
+        int fill_w = (int)((bw - 4) * bucket / 100);
+        if (fill_w > 0) FillArea(bx + 2, by + 12, fill_w, bh - 4, 0x555555);
+    }
 
     PartialUpdate(bx - 30, by - 90, bw + 60, 220);
 }
@@ -295,7 +301,22 @@ int EnsureNetwork() {
 void EnsureDirectories() {
     mkdir(APP_ROOT_DIR, 0777);
     mkdir(IMAGES_DIR, 0777);
-    mkdir(BOOKS_DIR, 0777); 
+    mkdir(BOOKS_DIR, 0777);
+
+    // Sweep up "dl_*.tmp" leftovers from downloads that never finished
+    // (e.g. app force-closed mid-transfer) — they're never valid book data.
+    DIR *dir = opendir(BOOKS_DIR);
+    if (dir) {
+        struct dirent *ent;
+        while ((ent = readdir(dir)) != NULL) {
+            if (strncmp(ent->d_name, "dl_", 3) == 0 && strstr(ent->d_name, ".tmp")) {
+                char full_path[MAX_STR_LEN];
+                snprintf(full_path, sizeof(full_path), "%s%s", BOOKS_DIR, ent->d_name);
+                remove(full_path);
+            }
+        }
+        closedir(dir);
+    }
 }
 
 void FreeListThumbs() {
@@ -1284,8 +1305,9 @@ void HandleBookDetailsTouch(int x, int y) {
             char tmp_fname[MAX_STR_LEN], server_fname[256] = {0}; 
             snprintf(tmp_fname, sizeof(tmp_fname), "dl_%ld.tmp", (long)time(NULL));
             char tmp_path[MAX_STR_LEN]; snprintf(tmp_path, sizeof(tmp_path), "%s%s", BOOKS_DIR, tmp_fname);
-            Repaint(); 
-            
+            Repaint();
+            ShowDownloadProgress(0, 0);
+
             int res = DownloadBook(e->formats[i].url, tmp_path, server_fname, servers[current_server_index].user, servers[current_server_index].pass);
             if (res == 0) { 
                 if (strlen(server_fname) == 0) snprintf(server_fname, sizeof(server_fname), "%s.%s", e->title, e->formats[i].label);
