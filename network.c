@@ -218,11 +218,21 @@ int DownloadBook(const char *url, const char *filepath, char *server_fname, cons
     }
 
     res = curl_easy_perform(curl);
+
+    long http_code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
     curl_easy_cleanup(curl);
     fclose(fp);
     LogDebug("================ DOWNLOAD REQUEST END ================");
 
-    if (res != CURLE_OK) { remove(filepath); return -1; }
+    if (res != CURLE_OK || (http_code != 0 && (http_code < 200 || http_code >= 300))) {
+        char msg[MAX_STR_LEN];
+        snprintf(msg, sizeof(msg), "DOWNLOAD FAILED: curl_res=%d http_code=%ld", res, http_code);
+        LogDebug(msg);
+        remove(filepath);
+        return -1;
+    }
     return 0;
 }
 
