@@ -100,25 +100,29 @@ static size_t HeaderCallback(char *buffer, size_t size, size_t nitems, void *use
     if (filename && strncasecmp(buffer, "Content-Disposition:", 20) == 0) {
         char *ptr = strstr(buffer, "filename=");
         if (ptr) {
-            ptr += 9; 
+            char raw[256] = {0};
+            ptr += 9;
             if (*ptr == '"') {
-                ptr++; 
+                ptr++;
                 char *end = strchr(ptr, '"');
                 if (end) {
                     int len = end - ptr;
                     if (len > 255) len = 255;
-                    strncpy(filename, ptr, len);
-                    filename[len] = '\0';
+                    strncpy(raw, ptr, len);
+                    raw[len] = '\0';
                 }
-            } 
+            }
             else {
                 int i = 0;
                 while (ptr[i] && ptr[i] != ' ' && ptr[i] != ';' && ptr[i] != '\r' && ptr[i] != '\n' && i < 255) {
-                    filename[i] = ptr[i]; 
+                    raw[i] = ptr[i];
                     i++;
                 }
-                filename[i] = '\0';
+                raw[i] = '\0';
             }
+            // Server sends percent-encoded UTF-8 (e.g. "%E7%8C%8E...") in the
+            // filename param; decode it so saved files get readable names.
+            if (raw[0]) url_decode(filename, raw);
         }
     }
     return numbytes;
