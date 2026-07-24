@@ -101,21 +101,25 @@ static size_t HeaderCallback(char *buffer, size_t size, size_t nitems, void *use
     if (filename && strncasecmp(buffer, "Content-Disposition:", 20) == 0) {
         char *ptr = strstr(buffer, "filename=");
         if (ptr) {
-            char raw[256] = {0};
+            // Percent-encoded CJK filenames expand to 9 bytes per character
+            // (e.g. "%E8%BF%9C"), so a modest title can easily exceed a
+            // 256-byte buffer — that truncated a raw "%XX" escape mid-sequence,
+            // leaving a dangling "%" and a chopped-off filename after decoding.
+            char raw[1024] = {0};
             ptr += 9;
             if (*ptr == '"') {
                 ptr++;
                 char *end = strchr(ptr, '"');
                 if (end) {
                     int len = end - ptr;
-                    if (len > 255) len = 255;
+                    if (len > (int)sizeof(raw) - 1) len = sizeof(raw) - 1;
                     strncpy(raw, ptr, len);
                     raw[len] = '\0';
                 }
             }
             else {
                 int i = 0;
-                while (ptr[i] && ptr[i] != ' ' && ptr[i] != ';' && ptr[i] != '\r' && ptr[i] != '\n' && i < 255) {
+                while (ptr[i] && ptr[i] != ' ' && ptr[i] != ';' && ptr[i] != '\r' && ptr[i] != '\n' && i < (int)sizeof(raw) - 1) {
                     raw[i] = ptr[i];
                     i++;
                 }

@@ -1305,7 +1305,7 @@ void HandleBookDetailsTouch(int x, int y) {
             FlashArea(m, by, sys_width - (m * 2), 90);
             if (EnsureNetwork() != 0) { Repaint(); return; }
 
-            char tmp_fname[MAX_STR_LEN], server_fname[256] = {0};
+            char tmp_fname[MAX_STR_LEN], server_fname[1024] = {0};
             snprintf(tmp_fname, sizeof(tmp_fname), "dl_%ld.tmp", (long)time(NULL));
             char tmp_path[MAX_STR_LEN]; snprintf(tmp_path, sizeof(tmp_path), "%s%s", BOOKS_DIR, tmp_fname);
             Repaint();
@@ -1320,7 +1320,7 @@ void HandleBookDetailsTouch(int x, int y) {
             if (res == 0) {
                 if (strlen(server_fname) == 0) snprintf(server_fname, sizeof(server_fname), "%s.%s", e->title, e->formats[i].label);
                 for(size_t j=0; server_fname[j]; j++) { if(server_fname[j] == '/' || server_fname[j] == '\\' || server_fname[j] == ':') server_fname[j] = '-'; }
-                char final_path[MAX_STR_LEN]; snprintf(final_path, sizeof(final_path), "%s%s", BOOKS_DIR, server_fname);
+                char final_path[sizeof(server_fname) + MAX_STR_LEN]; snprintf(final_path, sizeof(final_path), "%s%s", BOOKS_DIR, server_fname);
                 rename(tmp_path, final_path); TriggerLibraryRefresh();
                 DialogSynchro(ICON_INFORMATION, "Success", "Book saved to library.", "Done", NULL, NULL);
             } else { remove(tmp_path); DialogSynchro(ICON_ERROR, "Failed", "Download error.", "OK", NULL, NULL); }
