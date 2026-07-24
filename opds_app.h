@@ -57,6 +57,10 @@ typedef struct {
     char cover_url[MAX_STR_LEN];
     char thumb_url[MAX_STR_LEN];
     char nav_url[MAX_STR_LEN];
+    char publisher[128];
+    char published[64];
+    char language[32];
+    char category[256];
     BookFormat formats[MAX_FORMATS];
     int format_count;
     int is_book;

@@ -47,6 +47,7 @@ extern int ParseOpenSearch(const char *xml_data, const char *base_url, char *tem
 static int summary_scroll_y = 0;
 static int view_x = 0;
 static int view_y = 0;
+static long long download_progress_last_bucket = -1;
 static int view_w = 0;
 static int view_h = 0;
 
@@ -259,33 +260,21 @@ ibitmap* LoadCoverSTB(const char *path) {
 
 void ShowDownloadProgress(long long total, long long current) {
     // When total is unknown (server omitted Content-Length), bucket by KB
-    // downloaded instead of percent so the indicator still moves.
-    static long long last_bucket = -1;
+    // downloaded instead of percent so the indicator still moves. Uses the
+    // native progress dialog (opened/closed around the download in
+    // HandleBookDetailsTouch) so it stays on screen for the whole transfer.
     long long bucket = (total > 0) ? (current * 100) / total : (current / 8192);
-    if (bucket == last_bucket) return;
-    last_bucket = bucket;
+    if (bucket == download_progress_last_bucket) return;
+    download_progress_last_bucket = bucket;
 
-    int bw = sys_width * 0.8;
-    int bh = 60;
-    int bx = (sys_width - bw) / 2;
-    int by = (sys_height / 2) - 60;
-
-    FillArea(bx - 20, by - 80, bw + 40, 200, 0xFFFFFF);
-    DrawRect(bx - 20, by - 80, bw + 40, 200, 0x000000);
-
-    SetTextFont(36, 0x000000);
     char buf[64];
-    if (total > 0) snprintf(buf, sizeof(buf), "Downloading: %d%%", (int)bucket);
-    else snprintf(buf, sizeof(buf), "Downloading: %lld KB", current / 1024);
-    DrawTextRect(bx, by - 50, bw, 40, buf, ALIGN_CENTER);
-
-    DrawRect(bx, by + 10, bw, bh, 0x000000);
     if (total > 0) {
-        int fill_w = (int)((bw - 4) * bucket / 100);
-        if (fill_w > 0) FillArea(bx + 2, by + 12, fill_w, bh - 4, 0x555555);
+        snprintf(buf, sizeof(buf), "%d%%", (int)bucket);
+        UpdateProgressbar(buf, (int)bucket);
+    } else {
+        snprintf(buf, sizeof(buf), "%lld KB downloaded", current / 1024);
+        UpdateProgressbar(buf, 0);
     }
-
-    PartialUpdate(bx - 30, by - 90, bw + 60, 220);
 }
 
 int CheckDownloadCancel() { return 0; }
@@ -1278,10 +1267,21 @@ void DrawBookDetails() {
     if (current_cover_bmp) { DrawSmartBitmap(m, thumb_y, thumb_w, thumb_h, current_cover_bmp, STRETCH, 1); } 
     else { FillArea(m, thumb_y, thumb_w, thumb_h, 0xDDDDDD); SetTextFont(24, 0x000000); DrawTextRect(m, thumb_y + (thumb_h / 2) - 20, thumb_w, 40, "[NO COVER]", ALIGN_CENTER); }
     
-    SetTextFont(30, 0x000000); 
+    SetTextFont(30, 0x000000);
     view_x = m * 2 + thumb_w; view_y = thumb_y; view_w = sys_width - (m * 3 + thumb_w); view_h = thumb_h;
+
+    // Prepend whatever metadata the feed provided, then the summary, as one
+    // scrollable block (fields the server omitted are simply skipped).
+    char meta_display[1600]; int mo = 0;
+    if (strlen(e->publisher) > 0) mo += snprintf(meta_display + mo, sizeof(meta_display) - mo, "Publisher: %s\n", e->publisher);
+    if (strlen(e->published) > 0) mo += snprintf(meta_display + mo, sizeof(meta_display) - mo, "Published: %s\n", e->published);
+    if (strlen(e->language) > 0) mo += snprintf(meta_display + mo, sizeof(meta_display) - mo, "Language: %s\n", e->language);
+    if (strlen(e->category) > 0) mo += snprintf(meta_display + mo, sizeof(meta_display) - mo, "Category: %s\n", e->category);
+    if (mo > 0 && mo < (int)sizeof(meta_display) - 1) meta_display[mo++] = '\n';
+    snprintf(meta_display + mo, sizeof(meta_display) - mo, "%s", e->summary);
+
     SetClip(view_x, view_y, view_w, view_h);
-    DrawTextRect(view_x, view_y - summary_scroll_y, view_w, 2000, e->summary, ALIGN_LEFT);
+    DrawTextRect(view_x, view_y - summary_scroll_y, view_w, 2000, meta_display, ALIGN_LEFT);
     SetClip(0, 0, sys_width, sys_height);
     
     int by = thumb_y + thumb_h + 40;
@@ -1302,19 +1302,25 @@ void HandleBookDetailsTouch(int x, int y) {
             FlashArea(m, by, sys_width - (m * 2), 90);
             if (EnsureNetwork() != 0) { Repaint(); return; }
 
-            char tmp_fname[MAX_STR_LEN], server_fname[256] = {0}; 
+            char tmp_fname[MAX_STR_LEN], server_fname[256] = {0};
             snprintf(tmp_fname, sizeof(tmp_fname), "dl_%ld.tmp", (long)time(NULL));
             char tmp_path[MAX_STR_LEN]; snprintf(tmp_path, sizeof(tmp_path), "%s%s", BOOKS_DIR, tmp_fname);
             Repaint();
-            ShowDownloadProgress(0, 0);
+
+            char progress_title[96]; snprintf(progress_title, sizeof(progress_title), "Downloading %s", e->formats[i].label);
+            download_progress_last_bucket = -1;
+            OpenProgressbar(ICON_INFORMATION, progress_title, "Starting...", 0, NULL);
 
             int res = DownloadBook(e->formats[i].url, tmp_path, server_fname, servers[current_server_index].user, servers[current_server_index].pass);
-            if (res == 0) { 
+            CloseProgressbar();
+
+            if (res == 0) {
                 if (strlen(server_fname) == 0) snprintf(server_fname, sizeof(server_fname), "%s.%s", e->title, e->formats[i].label);
                 for(size_t j=0; server_fname[j]; j++) { if(server_fname[j] == '/' || server_fname[j] == '\\' || server_fname[j] == ':') server_fname[j] = '-'; }
                 char final_path[MAX_STR_LEN]; snprintf(final_path, sizeof(final_path), "%s%s", BOOKS_DIR, server_fname);
-                rename(tmp_path, final_path); TriggerLibraryRefresh(); Message(ICON_INFORMATION, "Success", "Book saved to library.", 2000); 
-            } else { remove(tmp_path); Message(ICON_ERROR, "Failed", "Download error.", 3000); }
+                rename(tmp_path, final_path); TriggerLibraryRefresh();
+                DialogSynchro(ICON_INFORMATION, "Success", "Book saved to library.", "Done", NULL, NULL);
+            } else { remove(tmp_path); DialogSynchro(ICON_ERROR, "Failed", "Download error.", "OK", NULL, NULL); }
             Repaint(); return;
         } by += 110;
     }

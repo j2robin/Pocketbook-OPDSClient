@@ -160,6 +160,28 @@ static void GetAuthorName(xmlNodePtr parent, char *out, int max_len) {
     }
 }
 
+// Collects up to 3 <category label="..."> (or term="...") values, comma-joined
+static void GetCategories(xmlNodePtr parent, char *out, int max_len) {
+    out[0] = '\0';
+    int len = 0, count = 0;
+    xmlNodePtr child = parent->children;
+    while (child && count < 3) {
+        if (child->type == XML_ELEMENT_NODE && strcmp((char*)child->name, "category") == 0) {
+            char *label = (char*)xmlGetProp(child, (xmlChar*)"label");
+            char *term = (char*)xmlGetProp(child, (xmlChar*)"term");
+            const char *val = (label && strlen(label) > 0) ? label : term;
+            if (val && strlen(val) > 0) {
+                if (len > 0) len += snprintf(out + len, max_len - len, ", ");
+                len += snprintf(out + len, max_len - len, "%s", val);
+                count++;
+            }
+            if (label) xmlFree(label);
+            if (term) xmlFree(term);
+        }
+        child = child->next;
+    }
+}
+
 int ParseOPDSFeed(const char *xml_data, const char *base_url) {
     if (!xml_data) return -1;
     
@@ -240,6 +262,17 @@ int ParseOPDSFeed(const char *xml_data, const char *base_url) {
             if (strlen(e->summary) == 0) {
                 GetChildNodeText(entry_node, "content", e->summary, 1023);
             }
+
+            GetChildNodeText(entry_node, "publisher", e->publisher, sizeof(e->publisher));
+            GetChildNodeText(entry_node, "language", e->language, sizeof(e->language));
+            GetCategories(entry_node, e->category, sizeof(e->category));
+
+            GetChildNodeText(entry_node, "published", e->published, sizeof(e->published));
+            if (strlen(e->published) == 0) {
+                GetChildNodeText(entry_node, "issued", e->published, sizeof(e->published));
+            }
+            // Trim a full ISO datetime (e.g. "2020-01-01T00:00:00Z") down to just the date
+            if (strlen(e->published) > 10 && e->published[10] == 'T') e->published[10] = '\0';
 
             xmlNodePtr child = entry_node->children;
             while (child) {
