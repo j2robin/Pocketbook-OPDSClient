@@ -597,9 +597,12 @@ void JumpToPageCallback(char *text) {
 }
 
 void TriggerLibraryRefresh() {
-    if (access("/usr/bin/iv2sh", F_OK) == 0) system("/usr/bin/iv2sh SendEventTo -1 154 &");
-    else if (access("/ebrmain/bin/iv2sh", F_OK) == 0) system("/ebrmain/bin/iv2sh SendEventTo -1 154 &");
-    else Message(ICON_INFORMATION, "Failed", "iv2sh not found", 2000);
+    // Was broadcasting event 154 (EVT_CONFIGCHANGED) via a shelled-out iv2sh
+    // call, which does nothing for the book library — that's for settings
+    // changes. EVT_FSCHANGED (73) is what tells the shell new files appeared
+    // so it rescans, and inkview.h exposes SendEventTo() directly, so no
+    // need to shell out to iv2sh at all.
+    SendEventTo(-1, EVT_FSCHANGED, 0, 0);
 }
 
 void JIT_DecodePageThumbnails() {
