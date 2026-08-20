@@ -587,9 +587,17 @@ void JumpToPageCallback(char *text) {
 }
 
 void TriggerLibraryRefresh() {
-    if (access("/usr/bin/iv2sh", F_OK) == 0) system("/usr/bin/iv2sh SendEventTo -1 154 &");
-    else if (access("/ebrmain/bin/iv2sh", F_OK) == 0) system("/ebrmain/bin/iv2sh SendEventTo -1 154 &");
-    else Message(ICON_INFORMATION, "Failed", "iv2sh not found", 2000);
+    // EVT_CONFIGCHANGED (154) is only a config-reload notice and never indexes anything, which is why downloads used to need a reboot.
+    // EVT_STARTSCAN and scanner.app were each verified to index a new file on their own (Era Lite, 6.8); both are kept because neither reports success, so there is no way to detect which one a given firmware honours.
+    SendEventTo(ALLTASKS, EVT_STARTSCAN, 0, 0);
+    const char *scanner = (access(SYSTEMSCANNER, F_OK) == 0) ? SYSTEMSCANNER : ((access(USERSCANNER, F_OK) == 0) ? USERSCANNER : NULL);
+    int started = 0;
+    if (scanner) { char *const args[] = { (char *)scanner, NULL }; started = (NewTask(scanner, args, "scanner", "Scanner", NULL, TASK_BACKGROUND | TASK_SINGLEINSTANCE) >= 0); }
+    if (!started) {
+        // Legacy path for firmwares that ship no scanner.app.
+        if (access("/usr/bin/iv2sh", F_OK) == 0) system("/usr/bin/iv2sh SendEventTo -1 154 &");
+        else if (access("/ebrmain/bin/iv2sh", F_OK) == 0) system("/ebrmain/bin/iv2sh SendEventTo -1 154 &");
+    }
 }
 
 void JIT_DecodePageThumbnails() {
@@ -1291,7 +1299,7 @@ void HandleBookDetailsTouch(int x, int y) {
                 if (strlen(server_fname) == 0) snprintf(server_fname, sizeof(server_fname), "%s.%s", e->title, e->formats[i].label);
                 for(size_t j=0; server_fname[j]; j++) { if(server_fname[j] == '/' || server_fname[j] == '\\' || server_fname[j] == ':') server_fname[j] = '-'; }
                 char final_path[MAX_STR_LEN]; snprintf(final_path, sizeof(final_path), "%s%s", BOOKS_DIR, server_fname);
-                rename(tmp_path, final_path); TriggerLibraryRefresh(); Message(ICON_INFORMATION, "Success", "Book saved to library.", 2000); 
+                rename(tmp_path, final_path); BookReady(final_path); TriggerLibraryRefresh(); Message(ICON_INFORMATION, "Success", "Book saved to library.", 2000); 
             } else { remove(tmp_path); Message(ICON_ERROR, "Failed", "Download error.", 3000); }
             Repaint(); return;
         } by += 110;

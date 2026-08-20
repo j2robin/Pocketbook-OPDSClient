@@ -14,7 +14,7 @@ An OPDS catalog client built in C for PocketBook e-readers. This application all
 * **Continuous Pagination:** Tracks page numbers across server batches to provide a seamless browsing experience.
 * **Network Handling:** Uses connection reuse, automatically resolves relative URLs, and implements 30-second timeouts to handle unresponsive servers without freezing the device.
 * **Downloads:** Books are downloaded directly to the device's storage. 
-  * *Note on Library Integration:* Books downloaded via the app may not automatically appear in the native PocketBook Library app. You may need to trigger a library rescan or use an external script (such as an `iv2sh` command) to force the OS to index the new files.
+  * *Library Integration:* Completed downloads are indexed straight away, so books appear in the native PocketBook Library without a reboot. The app broadcasts `EVT_STARTSCAN` and starts the firmware's `scanner.app`, either of which is enough on current firmware. Devices that ship no `scanner.app` fall back to the older `EVT_CONFIGCHANGED` broadcast via `iv2sh`.
 
 ---
 
