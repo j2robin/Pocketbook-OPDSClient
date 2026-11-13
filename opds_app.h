@@ -47,6 +47,7 @@ typedef struct {
 
 typedef struct {
     char label[64];
+    char ext[16];   // file extension without the dot ("epub", "kepub.epub", "cbz"), "" if unknown
     char url[MAX_STR_LEN];
 } BookFormat;
 

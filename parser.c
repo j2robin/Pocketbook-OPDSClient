@@ -85,6 +85,70 @@ int ParseOpenSearch(const char *xml_data, const char *base_url, char *template_o
 }
 
 // Determines if a parsed link points to a supported eBook format
+// Map an acquisition link to a file extension: MIME type first (exact match on
+// the part before any ';'), then the extension at the end of the href path.
+// The link title can't be used for this: servers put free text there
+// (Project Gutenberg: "EPUB (no images, older E-readers)").
+static void InferExtension(const char *type, const char *href, char *out, size_t out_len) {
+    static const struct { const char *mime; const char *ext; } mime_map[] = {
+        {"application/epub+zip", "epub"},
+        {"application/kepub+zip", "kepub.epub"},
+        {"application/x-kobo-epub+zip", "kepub.epub"},
+        {"application/pdf", "pdf"},
+        {"application/x-mobipocket-ebook", "mobi"},
+        {"application/x-mobi8-ebook", "azw3"},
+        {"application/vnd.amazon.ebook", "azw"},
+        {"application/x-fictionbook+xml", "fb2"},
+        {"application/x-fictionbook", "fb2"},
+        {"application/fb2", "fb2"},
+        {"application/x-zip-compressed-fb2", "fb2.zip"},
+        {"application/fb2+zip", "fb2.zip"},
+        {"image/vnd.djvu", "djvu"},
+        {"image/x-djvu", "djvu"},
+        {"text/plain", "txt"},
+        {"application/rtf", "rtf"},
+        {"text/rtf", "rtf"},
+        {"application/msword", "doc"},
+        {"application/vnd.openxmlformats-officedocument.wordprocessingml.document", "docx"},
+        {"application/vnd.ms-htmlhelp", "chm"},
+        {"application/x-chm", "chm"},
+        {"application/x-cbz", "cbz"},
+        {"application/vnd.comicbook+zip", "cbz"},
+        {"application/x-cbr", "cbr"},
+        {"application/vnd.comicbook-rar", "cbr"},
+        {"application/vnd.adobe.adept+xml", "acsm"},
+        {NULL, NULL}
+    };
+    out[0] = '\0';
+    if (type) {
+        char t[128] = {0};
+        size_t n = 0;
+        while (type[n] && type[n] != ';' && n < sizeof(t) - 1) { t[n] = tolower((unsigned char)type[n]); n++; }
+        while (n > 0 && t[n - 1] == ' ') t[--n] = '\0';
+        for (int i = 0; mime_map[i].mime; i++) {
+            if (strcmp(t, mime_map[i].mime) == 0) { snprintf(out, out_len, "%s", mime_map[i].ext); return; }
+        }
+    }
+    if (href) {
+        // Path only: stop at '?' or '#', then look at the last segment.
+        char path[MAX_STR_LEN] = {0};
+        size_t n = 0;
+        while (href[n] && href[n] != '?' && href[n] != '#' && n < sizeof(path) - 1) { path[n] = tolower((unsigned char)href[n]); n++; }
+        const char *seg = strrchr(path, '/');
+        seg = seg ? seg + 1 : path;
+        static const char *known[] = {"kepub.epub", "fb2.zip", "epub", "pdf", "mobi", "azw3", "azw", "fb2",
+                                      "djvu", "txt", "rtf", "docx", "doc", "chm", "prc", "tcr", "cbz", "cbr", "acsm", NULL};
+        size_t sl = strlen(seg);
+        for (int i = 0; known[i]; i++) {
+            size_t kl = strlen(known[i]);
+            if (sl > kl + 1 && seg[sl - kl - 1] == '.' && strcmp(seg + sl - kl, known[i]) == 0) {
+                snprintf(out, out_len, "%s", known[i]);
+                return;
+            }
+        }
+    }
+}
+
 static int IsSupportedBook(const char *type, const char *href) {
     if (!type && !href) return 0;
     
@@ -252,6 +316,7 @@ int ParseOPDSFeed(const char *xml_data, const char *base_url) {
                     if (href) {
                         if (IsSupportedBook(type, href) && e->format_count < MAX_FORMATS) {
                             ResolveURL(doc, child, base_url, href, e->formats[e->format_count].url, MAX_STR_LEN);
+                            InferExtension(type, href, e->formats[e->format_count].ext, sizeof(e->formats[e->format_count].ext));
                             
                             // Prioritize the human-readable title provided by the server
                             if (link_title && strlen(link_title) > 0) {
