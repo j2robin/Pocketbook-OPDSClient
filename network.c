@@ -106,9 +106,11 @@ static size_t HeaderCallback(char *buffer, size_t size, size_t nitems, void *use
         char *ext = strcasestr(clean_buf, "filename*=");
         if (ext) {
             char *p = ext + 10;
-            char *q = strstr(p, "''");          // skip charset'language'
+            // Skip charset'language' (language may be empty: UTF-8''name).
+            char *q1 = strchr(p, '\'');
+            char *q = q1 ? strchr(q1 + 1, '\'') : NULL;
             if (q) {
-                p = q + 2;
+                p = q + 1;
                 int i = 0;
                 while (*p && *p != ';' && *p != ' ' && i < 255) {
                     if (*p == '%' && isxdigit((unsigned char)p[1]) && isxdigit((unsigned char)p[2])) {
