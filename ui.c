@@ -8,6 +8,7 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <dlfcn.h>
+#include <errno.h>
 #include "icons.h" 
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -41,6 +42,49 @@ int current_page = 0;
 char last_loaded_url[MAX_STR_LEN] = {0};
 
 extern void LogDebug(const char *msg);
+
+// Make a server-supplied filename safe for the FAT/exFAT user storage (/mnt/ext1).
+// Calibre-Web, for example, sends names like "Polostan - Stephenson| Neal.epub"
+// ('|' stands in for the comma in "Last, First" authors), and '|' is not allowed
+// on FAT, so rename() fails. Map '|' back to ',', replace the other reserved
+// characters and control bytes with '-', and trim trailing spaces/dots.
+static void SanitizeFatFilename(char *name) {
+    for (size_t j = 0; name[j]; j++) {
+        unsigned char c = (unsigned char)name[j];
+        if (c == '|') name[j] = ',';
+        else if (c < 0x20 || c == 0x7f || strchr("/\\:*?\"<>", c)) name[j] = '-';
+    }
+    size_t len = strlen(name);
+    while (len > 0 && (name[len - 1] == ' ' || name[len - 1] == '.')) name[--len] = '\0';
+    if (len == 0) strcpy(name, "book");
+}
+
+// "<title>.<ext>" for when the server gave no usable filename. Uses the
+// extension inferred from the link's MIME type/href, falling back to the
+// label only when it is a plain token like "EPUB" (labels can be free text).
+static void BuildFallbackName(char *out, size_t out_len, const char *title, const BookFormat *f) {
+    char ext[64];
+    if (f->ext[0]) snprintf(ext, sizeof(ext), "%s", f->ext);
+    else {
+        int plain = f->label[0] != '\0';
+        for (const char *c = f->label; *c; c++) if (!isalnum((unsigned char)*c)) { plain = 0; break; }
+        snprintf(ext, sizeof(ext), "%s", plain ? f->label : "epub");
+        for (char *c = ext; *c; c++) *c = tolower((unsigned char)*c);
+    }
+    char base[200];
+    snprintf(base, sizeof(base), "%s", (title && title[0]) ? title : "book");  // keep well under FAT's 255
+    snprintf(out, out_len, "%s.%s", base, ext);
+    SanitizeFatFilename(out);
+}
+
+// Append ".<ext>" if the server's filename has no extension at all.
+static void EnsureExtension(char *name, size_t name_len, const BookFormat *f) {
+    const char *dot = strrchr(name, '.');
+    if ((dot && dot != name && dot[1]) || !f->ext[0]) return;
+    size_t len = strlen(name);
+    if (dot && !dot[1]) name[--len] = '\0';
+    if (len + 1 + strlen(f->ext) < name_len) snprintf(name + len, name_len - len, ".%s", f->ext);
+}
 extern int is_opensearch_url;
 extern int ParseOpenSearch(const char *xml_data, const char *base_url, char *template_out);
 
@@ -1288,10 +1332,28 @@ void HandleBookDetailsTouch(int x, int y) {
             
             int res = DownloadBook(e->formats[i].url, tmp_path, server_fname, servers[current_server_index].user, servers[current_server_index].pass);
             if (res == 0) { 
-                if (strlen(server_fname) == 0) snprintf(server_fname, sizeof(server_fname), "%s.%s", e->title, e->formats[i].label);
-                for(size_t j=0; server_fname[j]; j++) { if(server_fname[j] == '/' || server_fname[j] == '\\' || server_fname[j] == ':') server_fname[j] = '-'; }
+                if (strlen(server_fname) == 0) BuildFallbackName(server_fname, sizeof(server_fname), e->title, &e->formats[i]);
+                else EnsureExtension(server_fname, sizeof(server_fname), &e->formats[i]);
+                SanitizeFatFilename(server_fname);
                 char final_path[MAX_STR_LEN]; snprintf(final_path, sizeof(final_path), "%s%s", BOOKS_DIR, server_fname);
-                rename(tmp_path, final_path); TriggerLibraryRefresh(); Message(ICON_INFORMATION, "Success", "Book saved to library.", 2000); 
+                int rc = rename(tmp_path, final_path);
+                int rename_err = (rc != 0) ? errno : 0;
+                if (rc != 0) {
+                    // Fall back to "<title>.<format>" before giving up.
+                    char log_buf[MAX_STR_LEN * 2];
+                    snprintf(log_buf, sizeof(log_buf), "rename '%s' -> '%s' failed: %s", tmp_path, final_path, strerror(rename_err));
+                    LogDebug(log_buf);
+                    BuildFallbackName(server_fname, sizeof(server_fname), e->title, &e->formats[i]);
+                    snprintf(final_path, sizeof(final_path), "%s%s", BOOKS_DIR, server_fname);
+                    rc = rename(tmp_path, final_path);
+                    rename_err = (rc != 0) ? errno : 0;
+                    if (rc != 0) {
+                        snprintf(log_buf, sizeof(log_buf), "fallback rename '%s' -> '%s' failed: %s", tmp_path, final_path, strerror(rename_err));
+                        LogDebug(log_buf);
+                    }
+                }
+                if (rc == 0) { TriggerLibraryRefresh(); Message(ICON_INFORMATION, "Success", "Book saved to library.", 2000); }
+                else { char err_buf[MAX_STR_LEN]; snprintf(err_buf, sizeof(err_buf), "Downloaded but could not rename %s: %s", tmp_fname, strerror(rename_err)); Message(ICON_ERROR, "Save failed", err_buf, 4000); }
             } else { remove(tmp_path); Message(ICON_ERROR, "Failed", "Download error.", 3000); }
             Repaint(); return;
         } by += 110;
